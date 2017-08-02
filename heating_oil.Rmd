@@ -1,0 +1,104 @@
+---
+title: "R Notebook: Residential Heating Oil Exploration"
+output: html_notebook
+---
+
+See the README.md file for data sources.
+
+Load all the required libraries.
+```{r}
+
+require(tidyverse)
+require(lubridate)
+#require(viridis)
+
+```
+
+Read the data files. Convert dates to a uniform format; break out dates into useful fields for comparisons. Compute an average temperature for each day, then group the data by year and week number, then compute the average temperature for the week.
+```{r}
+
+prices <- read_csv("data/prices.csv") %>%
+          mutate(
+            Date = mdy(WeekOf),
+            WeekNum = isoweek(Date),
+            Year = year(Date)
+          ) %>%
+          fill(PPG) %>%
+          select(-WeekOf) %>%
+          arrange(Date)
+
+ggplot(data=prices) +
+  geom_point(mapping = aes(x=Date, y=PPG))
+
+ggplot(data=prices) +
+  geom_histogram(mapping = aes(PPG), bins=50)
+
+```
+
+```{r}
+
+supply <- read_csv("data/supply.csv") %>%
+          mutate(
+            Date = mdy(WeekOf),
+            WeekNum = isoweek(Date),
+            Year = year(Date)
+          ) %>%
+          fill(DaysOfSupply) %>%
+          select(-WeekOf) %>%
+          arrange(Date)
+
+ggplot(data=supply) +
+  geom_point(mapping = aes(x=Date, y=DaysOfSupply))
+
+ggplot(data=supply) +
+  geom_histogram(mapping = aes(DaysOfSupply), bins=50)
+
+```
+
+```{r}
+
+temps <- read_csv("data/daily_temps.csv", na=c("-9999")) %>%
+         mutate(
+           Date = ymd(Date),
+           WeekNum = isoweek(Date),
+           Year = year(Date),
+           TAvg = rowMeans(cbind(TMax, TMin), na.rm=TRUE)
+         ) %>%
+         group_by(Year, WeekNum) %>% 
+         mutate(AvgTemp = mean(TAvg)) %>% 
+         distinct(Year, WeekNum, .keep_all=TRUE) %>% 
+         select(Date, WeekNum, Year, AvgTemp) %>%
+         arrange(Date)
+
+ggplot(data=temps) +
+  geom_point(mapping = aes(x=Date, y=AvgTemp))
+
+ggplot(data=temps) +
+  geom_histogram(mapping = aes(AvgTemp), bins=50)
+
+```
+
+
+Now we can combine the data sources into one data frame
+
+```{r}
+
+obs <- inner_join(prices, supply, c("Year", "WeekNum"), suffix=c(".prices", ".temps")) %>%
+       inner_join(temps, c("Year", "WeekNum")) %>% 
+       rename(Date.supply=Date)
+
+ggplot(data=obs) +
+  geom_point(mapping = aes(x=WeekNum, y=PPG)) +
+  facet_wrap(~ Year)
+  
+ggplot(data=obs) +
+  geom_point(mapping = aes(x=WeekNum, y=AvgTemp)) +
+  facet_wrap(~ Year)
+
+ggplot(data=obs) +
+  geom_point(mapping = aes(x=WeekNum, y=DaysOfSupply)) +
+  facet_wrap(~ Year)
+
+```
+
+
