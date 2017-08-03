@@ -10,42 +10,63 @@ Load all the required libraries.
 
 require(tidyverse)
 require(lubridate)
-#require(viridis)
+require(viridis)
 
 ```
 
 Read the data files. Convert dates to a uniform format; break out dates into useful fields for comparisons. Compute an average temperature for each day, then group the data by year and week number, then compute the average temperature for the week.
 ```{r}
 
+winter_season <- function(d) {
+  ifelse(month(d) >= 6, year(d), year(d) - 1)
+}
+
 prices <- read_csv("data/prices.csv") %>%
+          na.omit(PPG) %>%
           mutate(
             Date = mdy(WeekOf),
             WeekNum = isoweek(Date),
-            Year = year(Date)
+            Year = year(Date),
+            Month = month(Date),
+            WinterYear = winter_season(Date)
           ) %>%
-          fill(PPG) %>%
           select(-WeekOf) %>%
-          arrange(Date)
+          arrange(Date) %>%
+          mutate(
+            TimeDiffDays = c(0.0, as.double(diff(Date))),
+            PriceDiff = c(0.0, diff(PPG)),
+            PriceDeltaWeek = 7.0 * (PriceDiff / TimeDiffDays)
+          ) %>%
+          filter(TimeDiffDays < 40) %>%
+          filter(!is.nan(PriceDeltaWeek))
 
 ggplot(data=prices) +
   geom_point(mapping = aes(x=Date, y=PPG))
 
 ggplot(data=prices) +
-  geom_histogram(mapping = aes(PPG), bins=50)
+  geom_histogram(mapping = aes(PPG), bins=20) +
+  facet_wrap(~ WinterYear)
 
 ```
 
 ```{r}
 
 supply <- read_csv("data/supply.csv") %>%
+          na.omit(DaysOfSupply) %>%
           mutate(
             Date = mdy(WeekOf),
             WeekNum = isoweek(Date),
-            Year = year(Date)
+            Year = year(Date),
+            WinterYear = winter_season(Date)
           ) %>%
-          fill(DaysOfSupply) %>%
           select(-WeekOf) %>%
-          arrange(Date)
+          arrange(Date) %>%
+          mutate(
+            TimeDiffDays = c(0.0, as.double(diff(Date))),
+            SupplyDiff = c(0.0, diff(DaysOfSupply)),
+            SupplyDeltaWeek = 7.0 * (SupplyDiff / TimeDiffDays)
+          ) %>%
+          filter(!is.nan(SupplyDeltaWeek))
 
 ggplot(data=supply) +
   geom_point(mapping = aes(x=Date, y=DaysOfSupply))
@@ -62,13 +83,21 @@ temps <- read_csv("data/daily_temps.csv", na=c("-9999")) %>%
            Date = ymd(Date),
            WeekNum = isoweek(Date),
            Year = year(Date),
-           TAvg = rowMeans(cbind(TMax, TMin), na.rm=TRUE)
+           TAvg = rowMeans(cbind(TMax, TMin), na.rm=TRUE),
+           WinterYear = winter_season(Date)
          ) %>%
          group_by(Year, WeekNum) %>% 
          mutate(AvgTemp = mean(TAvg)) %>% 
          distinct(Year, WeekNum, .keep_all=TRUE) %>% 
-         select(Date, WeekNum, Year, AvgTemp) %>%
-         arrange(Date)
+         select(Date, WeekNum, Year, AvgTemp, WinterYear) %>%
+         ungroup() %>%
+         arrange(Date) %>%
+         mutate(
+           TimeDiffDays = c(0.0, as.double(diff(Date))),
+           TempDiff = c(0.0, diff(AvgTemp)),
+           TempDeltaWeek = 7.0 * (TempDiff / TimeDiffDays)
+          ) %>%
+          filter(!is.nan(TempDeltaWeek))
 
 ggplot(data=temps) +
   geom_point(mapping = aes(x=Date, y=AvgTemp))
@@ -79,26 +108,47 @@ ggplot(data=temps) +
 ```
 
 
-Now we can combine the data sources into one data frame
+Now we can combine the data sources into one data frame. Then we segment the data into `winters` where each measurement has a `WinterWeekNumber`.
 
 ```{r}
 
-obs <- inner_join(prices, supply, c("Year", "WeekNum"), suffix=c(".prices", ".temps")) %>%
-       inner_join(temps, c("Year", "WeekNum")) %>% 
-       rename(Date.supply=Date)
+obs <- inner_join(prices, supply, c("Year", "WeekNum", "WinterYear"), suffix=c(".prices", ".temps")) %>%
+       inner_join(temps, c("Year", "WeekNum", "WinterYear")) %>% 
+       rename(Date.supply=Date) %>%
+       mutate(
+         WinterWeekNum = ifelse(WeekNum > 30, WeekNum, WeekNum + 52),
+         WinterWeekNum = WinterWeekNum - min(WinterWeekNum)
+       ) 
 
 ggplot(data=obs) +
-  geom_point(mapping = aes(x=WeekNum, y=PPG)) +
-  facet_wrap(~ Year)
+  geom_point(mapping = aes(x=WinterWeekNum, y=PPG)) +
+  facet_wrap(~ WinterYear)
   
 ggplot(data=obs) +
-  geom_point(mapping = aes(x=WeekNum, y=AvgTemp)) +
-  facet_wrap(~ Year)
+  geom_point(mapping = aes(x=WinterWeekNum, y=AvgTemp)) +
+  facet_wrap(~ WinterYear)
 
 ggplot(data=obs) +
-  geom_point(mapping = aes(x=WeekNum, y=DaysOfSupply)) +
-  facet_wrap(~ Year)
+  geom_point(mapping = aes(x=WinterWeekNum, y=DaysOfSupply)) +
+  facet_wrap(~ WinterYear)
 
 ```
+
+What if we capture the price change within a WinterYear? It doesn't seem to change too much. Let's also look at delta on temp and supply. Maybe there's correlation in the change, rather than the absolute value.
+
+```{r}
+
+ggplot(prices) +
+  geom_histogram(mapping = aes(PriceDeltaWeek), bins=100)
+
+ggplot(supply) +
+  geom_histogram(mapping = aes(SupplyDeltaWeek), bins=50)
+
+ggplot(temps) +
+  geom_histogram(mapping = aes(TempDeltaWeek), bins=100)
+
+```
+
+
 
 
