@@ -132,6 +132,14 @@ ggplot(data=obs) +
   geom_point(mapping = aes(x=WinterWeekNum, y=DaysOfSupply)) +
   facet_wrap(~ WinterYear)
 
+ggplot(data=obs, mapping = aes(x=WinterWeekNum, y=PriceDeltaWeek, group=WinterYear, color=WinterYear)) +
+  geom_line() #+
+  #stat_smooth(method = "lm")
+
+ggplot(data=obs, mapping = aes(x=WinterWeekNum, y=SupplyDeltaWeek, group=WinterYear, color=WinterYear)) +
+  geom_line() #+
+  #stat_smooth(method = "lm")
+
 ```
 
 What if we capture the price change within a WinterYear? It doesn't seem to change too much. Let's also look at delta on temp and supply. Maybe there's correlation in the change, rather than the absolute value.
